@@ -113,10 +113,6 @@ fn print_help() {
     eprintln!("  blame <file>       Git blame with AI authorship overlay");
     eprintln!("  stats [commit]     Show AI authorship statistics for a commit");
     eprintln!("    --json                 Output in JSON format");
-    eprintln!(
-        "  stats-delta        Generate authorship logs for children of commits with working logs"
-    );
-    eprintln!("    --json                 Output created notes as JSON");
     eprintln!("  show <rev|range>   Display authorship logs for a revision or range");
     eprintln!("  install-hooks      Install git hooks for AI authorship tracking");
     eprintln!("  ci                 Continuous integration utilities");

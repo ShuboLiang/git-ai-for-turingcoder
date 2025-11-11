@@ -135,6 +135,7 @@ pub struct PersistedWorkingLog {
     pub repo_workdir: PathBuf,
     /// Canonical (absolute, resolved) version of workdir for reliable path comparisons
     /// On Windows, this uses the \\?\ UNC prefix format
+    #[allow(dead_code)]
     pub canonical_workdir: PathBuf,
     pub dirty_files: Option<HashMap<String, String>>,
 }

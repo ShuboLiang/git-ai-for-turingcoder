@@ -292,6 +292,7 @@ pub fn write_stats_to_terminal(stats: &CommitStats, print: bool) -> String {
     return output;
 }
 
+#[allow(dead_code)]
 pub fn write_stats_to_markdown(stats: &CommitStats) -> String {
     let mut output = String::new();
 

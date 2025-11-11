@@ -24,6 +24,14 @@ pub fn pre_reset_hook(parsed_args: &ParsedGitInvocation, repository: &mut Reposi
 
     // Capture HEAD before reset happens
     repository.require_pre_command_head();
+    
+    // Resolve tree-ish to commit SHA BEFORE the reset happens
+    // This is critical because relative refs like HEAD~1 will resolve to different commits after the reset
+    let tree_ish = extract_tree_ish(parsed_args);
+    if let Ok(target_commit_sha) = resolve_tree_ish_to_commit(repository, &tree_ish) {
+        // Store the resolved target commit in the repository for use in post-reset hook
+        repository.pre_reset_target_commit = Some(target_commit_sha);
+    }
 }
 
 pub fn post_reset_hook(
@@ -68,12 +76,24 @@ pub fn post_reset_hook(
         }
     };
 
-    // Resolve tree-ish to commit SHA
-    let target_commit_sha = match resolve_tree_ish_to_commit(repository, &tree_ish) {
-        Ok(sha) => sha,
-        Err(e) => {
-            debug_log(&format!("Failed to resolve tree-ish '{}': {}", tree_ish, e));
-            return;
+    // Use pre-resolved target commit from pre-reset hook
+    // This is critical because relative refs like HEAD~1 resolve differently after the reset
+    let target_commit_sha = match &repository.pre_reset_target_commit {
+        Some(sha) => sha.clone(),
+        None => {
+            // Fallback to resolving tree-ish post-reset (for backwards compatibility)
+            // This will be incorrect for relative refs but better than failing
+            debug_log(&format!(
+                "Warning: No pre-resolved target commit, attempting post-reset resolution of '{}'",
+                tree_ish
+            ));
+            match resolve_tree_ish_to_commit(repository, &tree_ish) {
+                Ok(sha) => sha,
+                Err(e) => {
+                    debug_log(&format!("Failed to resolve tree-ish '{}': {}", tree_ish, e));
+                    return;
+                }
+            }
         }
     };
 
