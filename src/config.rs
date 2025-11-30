@@ -311,7 +311,7 @@ fn build_feature_flags(file_cfg: &Option<FileConfig>) -> FeatureFlags {
         serde_json::from_value(value.clone()).ok()
     });
 
-    FeatureFlags::from_file_config(file_flags)
+    FeatureFlags::from_env_and_file(file_flags)
 }
 
 fn resolve_git_path(file_cfg: &Option<FileConfig>) -> String {

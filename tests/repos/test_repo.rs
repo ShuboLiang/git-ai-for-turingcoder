@@ -1,5 +1,6 @@
 use git_ai::authorship::authorship_log_serialization::AuthorshipLog;
 use git_ai::authorship::stats::CommitStats;
+use git_ai::feature_flags::FeatureFlags;
 use git_ai::git::repo_storage::PersistedWorkingLog;
 use git_ai::git::repository as GitAiRepository;
 use git_ai::observability::wrapper_performance_targets::BenchmarkResult;
@@ -17,6 +18,7 @@ use super::test_file::TestFile;
 #[derive(Clone, Debug)]
 pub struct TestRepo {
     path: PathBuf,
+    pub feature_flags: FeatureFlags,
 }
 
 impl TestRepo {
@@ -34,7 +36,10 @@ impl TestRepo {
             .set_str("user.email", "test@example.com")
             .expect("failed to initialize git2 repository");
 
-        Self { path }
+        Self {
+            path,
+            feature_flags: FeatureFlags::default(),
+        }
     }
 
     pub fn new_at_path(path: &PathBuf) -> Self {
@@ -46,7 +51,14 @@ impl TestRepo {
         config
             .set_str("user.email", "test@example.com")
             .expect("failed to initialize git2 repository");
-        Self { path: path.clone() }
+        Self {
+            path: path.clone(),
+            feature_flags: FeatureFlags::default(),
+        }
+    }
+
+    pub fn set_feature_flags(&mut self, feature_flags: FeatureFlags) {
+        self.feature_flags = feature_flags;
     }
 
     pub fn path(&self) -> &PathBuf {
