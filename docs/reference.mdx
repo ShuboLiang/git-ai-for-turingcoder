@@ -1,7 +1,7 @@
 ---
 title: CLI Reference
-description: Complete reference for all Git AI commands including blame, stats, checkpoint, and install-hooks. Learn the full command-line interface for tracking AI code authorship.
-keywords: git ai commands, git ai cli, git-ai blame, git-ai stats, git-ai checkpoint, command reference, git wrapper
+description: Complete reference for all Git AI commands including blame, stats, checkpoint, show-prompt, and install-hooks. Learn the full command-line interface for tracking AI code authorship.
+keywords: git ai commands, git ai cli, git-ai blame, git-ai stats, git-ai checkpoint, git-ai show-prompt, command reference, git wrapper
 ---
 
 When you invoke the Git AI binary as `git` it will proxy the arguments to git and pipe the output and exist code back to you. 
@@ -88,6 +88,58 @@ git-ai show <start>..<end>
 
 **Output**
 - Prints the serialized authorship log for each matching commit, or `No authorship data found for this revision` when a commit has no stored log
+
+##### `show-prompt`
+
+Display a prompt record by its ID from authorship notes. Returns the prompt object from the most recent commit's authorship note where the prompt with the given ID is located, or from a specific commit if requested.
+
+```bash
+# Get the most recent occurrence of a prompt
+git-ai show-prompt <prompt_id>
+
+# Get prompt from a specific commit
+git-ai show-prompt <prompt_id> --commit <rev>
+
+# Get the Nth occurrence (0 = most recent, 1 = second most recent, etc.)
+git-ai show-prompt <prompt_id> --offset <n>
+```
+
+**Arguments:**
+- `<prompt_id>` - The prompt ID to look up (required)
+
+**Options:**
+- `--commit <rev>` - Look in a specific commit only (can be a commit SHA, HEAD, branch name, etc.). Mutually exclusive with `--offset`
+- `--offset <n>` - Skip n occurrences before returning (0 = most recent, 1 = second most recent, etc.). Mutually exclusive with `--commit`
+
+**Output**
+
+Returns a JSON object with the following structure:
+
+```json
+{
+  "commit": "<commit_sha>",
+  "prompt_id": "<prompt_id>",
+  "prompt": {
+    "agent_id": {
+      "tool": "<tool_name>",
+      "id": "<agent_id>",
+      "model": "<model_name>"
+    },
+    "human_author": "<author_name>",
+    "messages": [...],
+    "total_additions": <number>,
+    "total_deletions": <number>,
+    "accepted_lines": <number>,
+    "overriden_lines": <number>
+  }
+}
+```
+
+**Notes:**
+- If `--commit` is specified, the command only searches in that specific commit's authorship note
+- If `--offset` is specified (and `--commit` is not), the command searches through all commits containing the prompt ID, ordered from most recent to least recent, and returns the (N+1)th occurrence where N is the offset
+- The `--commit` and `--offset` flags are mutually exclusive
+- If the prompt is not found, the command exits with an error
 
 ##### `install-hooks`
 

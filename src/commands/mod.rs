@@ -8,5 +8,6 @@ pub mod git_handlers;
 pub mod hooks;
 pub mod install_hooks;
 pub mod show;
+pub mod show_prompt;
 pub mod squash_authorship;
 pub mod upgrade;

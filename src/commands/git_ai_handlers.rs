@@ -89,6 +89,9 @@ pub fn handle_git_ai(args: &[String]) {
         "flush-logs" => {
             commands::flush_logs::handle_flush_logs(&args[1..]);
         }
+        "show-prompt" => {
+            commands::show_prompt::handle_show_prompt(&args[1..]);
+        }
         _ => {
             println!("Unknown git-ai command: {}", args[0]);
             std::process::exit(1);
@@ -114,6 +117,9 @@ fn print_help() {
     eprintln!("  stats [commit]     Show AI authorship statistics for a commit");
     eprintln!("    --json                 Output in JSON format");
     eprintln!("  show <rev|range>   Display authorship logs for a revision or range");
+    eprintln!("  show-prompt <id>   Display a prompt record by its ID");
+    eprintln!("    --commit <rev>        Look in a specific commit only");
+    eprintln!("    --offset <n>          Skip n occurrences (0 = most recent, mutually exclusive with --commit)");
     eprintln!("  install-hooks      Install git hooks for AI authorship tracking");
     eprintln!("  ci                 Continuous integration utilities");
     eprintln!("    github                 GitHub CI helpers");
