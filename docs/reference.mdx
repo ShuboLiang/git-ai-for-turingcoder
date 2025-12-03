@@ -1,7 +1,7 @@
 ---
 title: CLI Reference
-description: Complete reference for all Git AI commands including blame, stats, checkpoint, show-prompt, and install-hooks. Learn the full command-line interface for tracking AI code authorship.
-keywords: git ai commands, git ai cli, git-ai blame, git-ai stats, git-ai checkpoint, git-ai show-prompt, command reference, git wrapper
+description: Complete reference for all Git AI commands including blame, diff, stats, checkpoint, show-prompt, and install-hooks. Learn the full command-line interface for tracking AI code authorship.
+keywords: git ai commands, git ai cli, git-ai blame, git-ai diff, git-ai stats, git-ai checkpoint, git-ai show-prompt, command reference, git wrapper
 ---
 
 When you invoke the Git AI binary as `git` it will proxy the arguments to git and pipe the output and exist code back to you. 
@@ -26,7 +26,59 @@ git-ai blame <file>
 - `<file>` - Path to the file to blame (required)
 
 **Options:**
-Mostly API Compatible, supports same options as [`git blame`](https://git-scm.com/docs/git-blame). 
+Mostly API Compatible, supports same options as [`git blame`](https://git-scm.com/docs/git-blame).
+
+
+##### `diff`
+
+Show a git-style unified diff with AI authorship annotations for each changed line. Similar to `git diff`, but annotates additions and deletions with AI or human attribution.
+
+```bash
+# Show diff for a single commit (from parent to commit)
+git-ai diff <commit>
+
+# Show diff between two commits
+git-ai diff <commit1>..<commit2>
+
+# Examples
+git-ai diff HEAD                  # Diff of most recent commit
+git-ai diff abc123                # Diff of specific commit
+git-ai diff main..feature-branch  # Diff between branches
+git-ai diff abc123..def456        # Diff between specific commits
+```
+
+**Arguments:**
+- `<commit>` - Show diff from this commit's parent to the commit
+- `<commit1>..<commit2>` - Show diff between two commits (standard git range syntax)
+
+**Output Format:**
+
+Each changed line (additions `+` and deletions `-`) is annotated with authorship information:
+- `🤖toolname` - Line was authored by an AI tool (e.g., `🤖cursor`, `🤖claude`)
+- `👤username` - Line was authored by a human (shows git username)
+- `[no-data]` - No AI authorship data available for this line
+
+The annotations appear at the end of each changed line. Context lines (unchanged) are not annotated.
+
+**Example Output:**
+```diff
+diff --git a/src/main.rs b/src/main.rs
+index 5716ca5..8f94139 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -10,3 +10,5 @@ fn main() {
+     println!("Hello");
+-    let x = 1;        👤alice
++    let x = 2;        🤖cursor
++    let y = 3;        🤖cursor
+     println!("World");
+```
+
+**Notes:**
+- Output is colored when displayed in a terminal (red for deletions, green for additions)
+- For deletions, attribution shows who originally authored that line in the old commit
+- For additions, attribution shows who authored that line in the new commit
+- Works with commit ranges to see all changes between any two commits
 
 
 ##### `stats`
