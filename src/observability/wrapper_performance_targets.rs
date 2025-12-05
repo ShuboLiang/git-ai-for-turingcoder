@@ -99,7 +99,23 @@ pub fn log_performance_for_checkpoint(
     duration: Duration,
     checkpoint_kind: CheckpointKind,
 ) {
-    if Duration::from_millis(50 * files_edited as u64) >= duration {
+    let within_target = Duration::from_millis(50 * files_edited as u64) >= duration;
+
+    // Output structured JSON for benchmarking (when GIT_AI_DEBUG_PERFORMANCE >= 2)
+    // For git-ai commands like checkpoint, there's no pre/post/git breakdown - just total time
+    let perf_json = json!({
+        "command": "checkpoint",
+        "total_duration_ms": duration.as_millis(),
+        "git_duration_ms": 0,
+        "pre_command_duration_ms": 0,
+        "post_command_duration_ms": 0,
+        "files_edited": files_edited,
+        "checkpoint_kind": checkpoint_kind.to_string(),
+        "within_target": within_target,
+    });
+    debug_performance_log_structured(perf_json);
+
+    if !within_target {
         log_performance(
             "checkpoint",
             duration,

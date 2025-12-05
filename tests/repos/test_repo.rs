@@ -142,6 +142,17 @@ impl TestRepo {
         let output = self.git_with_env(args, &[("GIT_AI_DEBUG_PERFORMANCE", "2")])?;
 
         println!("output: {}", output);
+        Self::parse_benchmark_result(&output)
+    }
+
+    pub fn benchmark_git_ai(&self, args: &[&str]) -> Result<BenchmarkResult, String> {
+        let output = self.git_ai_with_env(args, &[("GIT_AI_DEBUG_PERFORMANCE", "2")])?;
+
+        println!("output: {}", output);
+        Self::parse_benchmark_result(&output)
+    }
+
+    fn parse_benchmark_result(output: &str) -> Result<BenchmarkResult, String> {
         // Find the JSON performance line
         for line in output.lines() {
             if line.contains("[git-ai (perf-json)]") {

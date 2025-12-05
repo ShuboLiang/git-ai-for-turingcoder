@@ -30,6 +30,7 @@ fn setup() {
 mod tests {
     use super::*;
     use git_ai::observability::wrapper_performance_targets::PERFORMANCE_FLOOR_MS;
+    use rand::seq::SliceRandom;
     use rstest::rstest;
 
     #[rstest]
@@ -309,6 +310,130 @@ mod tests {
             "Average overhead should be less than 20%"
         );
     }
+
+    #[rstest]
+    #[case("chromium")]
+    #[case("react")]
+    #[case("node")]
+    #[case("chakracore")]
+    #[ignore]
+    fn test_large_checkpoints(#[case] repo_name: &str) {
+        use std::time::Instant;
+
+        let repos = get_performance_repos();
+        let test_repo = repos
+            .get(repo_name)
+            .expect(&format!("{} repo should be available", repo_name));
+
+        // Find 1000 random files for testing
+        println!("Finding 1000 random files for {}", repo_name);
+        let start = Instant::now();
+        let random_files = find_random_files_with_options(
+            test_repo,
+            FindRandomFilesOptions {
+                random_file_count: 1000,
+                large_file_count: 0,
+            },
+        )
+        .expect("Should find random files");
+        let duration = start.elapsed();
+        println!("Time taken to find random files: {:?}", duration);
+
+        let all_files: Vec<String> = random_files.random_files;
+        println!("Found {} files to edit", all_files.len());
+
+        assert!(
+            all_files.len() == 1000,
+            "Should have at least 100 files to edit, found {}",
+            all_files.len()
+        );
+
+        // Create a sampler that runs 5 times (fewer due to the large number of files)
+        let sampler = Sampler::new(5);
+
+        // Sample the performance of large checkpoint operations
+        let result = sampler.sample(test_repo, |repo| {
+            // Step 1: Edit all 1000 files (simulating AI edits)
+            println!("Editing {} files...", all_files.len());
+            for file_path in &all_files {
+                let full_path = repo.path().join(file_path);
+
+                let mut file = OpenOptions::new()
+                    .append(true)
+                    .open(&full_path)
+                    .expect(&format!("Should be able to open file: {}", file_path));
+
+                file.write_all(b"\n# AI Generated Line\n")
+                    .expect(&format!("Should be able to write to file: {}", file_path));
+            }
+
+            // Step 2: Run git-ai checkpoint mock_ai -- <all pathspecs>
+            println!("Running checkpoint mock_ai on {} files...", all_files.len());
+            let mut checkpoint_args: Vec<&str> = vec!["checkpoint", "mock_ai", "--"];
+            let all_files_refs: Vec<&str> = all_files.iter().map(|s| s.as_str()).collect();
+            checkpoint_args.extend(all_files_refs.iter());
+
+            repo.git_ai(&checkpoint_args)
+                .expect("Checkpoint mock_ai should succeed");
+
+            // Step 3: Select 100 random files from the 1000 and edit them (simulating human edits)
+            let mut rng = thread_rng();
+            let files_to_re_edit: Vec<String> = all_files
+                .choose_multiple(&mut rng, 100.min(all_files.len()))
+                .cloned()
+                .collect();
+
+            println!(
+                "Re-editing {} files (human edits)...",
+                files_to_re_edit.len()
+            );
+            for file_path in &files_to_re_edit {
+                let full_path = repo.path().join(file_path);
+
+                let mut file = OpenOptions::new()
+                    .append(true)
+                    .open(&full_path)
+                    .expect(&format!("Should be able to open file: {}", file_path));
+
+                file.write_all(b"\n# Human Line\n")
+                    .expect(&format!("Should be able to write to file: {}", file_path));
+            }
+
+            // Step 4: Benchmark the checkpoint on the 100 human-edited files
+            println!(
+                "Benchmarking checkpoint on {} files...",
+                files_to_re_edit.len()
+            );
+            let mut final_checkpoint_args: Vec<&str> = vec!["checkpoint", "--"];
+            let files_to_re_edit_refs: Vec<&str> =
+                files_to_re_edit.iter().map(|s| s.as_str()).collect();
+            final_checkpoint_args.extend(files_to_re_edit_refs.iter());
+
+            repo.benchmark_git_ai(&final_checkpoint_args)
+                .expect("Checkpoint should succeed")
+        });
+
+        // Print the results
+        result.print_summary(&format!("Large checkpoints ({})", repo_name));
+
+        // For checkpoint operations, we measure time per file
+        // The benchmark is on 100 files, so we calculate ms per file
+        let files_benchmarked = 100;
+        let avg_total_ms = result.average.total_duration.as_millis() as f64;
+        let ms_per_file = avg_total_ms / files_benchmarked as f64;
+
+        println!(
+            "Average total time: {:.2}ms, Files: {}, Time per file: {:.2}ms",
+            avg_total_ms, files_benchmarked, ms_per_file
+        );
+
+        // Assert that checkpoint takes less than 50ms per file on average
+        assert!(
+            ms_per_file < 50.0,
+            "Checkpoint should take less than 50ms per file, got {:.2}ms per file",
+            ms_per_file
+        );
+    }
 }
 
 const PERFORMANCE_REPOS: &[(&str, &str)] = &[
@@ -370,10 +495,27 @@ pub fn get_performance_repos() -> &'static HashMap<String, TestRepo> {
 /// Result of finding random files in a repository
 #[derive(Debug)]
 pub struct RandomFiles {
-    /// 10 random files from the repository
+    /// Random files from the repository (default 10)
     pub random_files: Vec<String>,
     /// 2 random large files (5k-10k lines)
     pub large_files: Vec<String>,
+}
+
+/// Options for finding random files
+pub struct FindRandomFilesOptions {
+    /// Number of random files to find (default 10)
+    pub random_file_count: usize,
+    /// Number of large files to find (default 2)
+    pub large_file_count: usize,
+}
+
+impl Default for FindRandomFilesOptions {
+    fn default() -> Self {
+        Self {
+            random_file_count: 10,
+            large_file_count: 2,
+        }
+    }
 }
 
 /// Find random files in a repository for performance testing
@@ -385,6 +527,21 @@ pub struct RandomFiles {
 /// This helper uses filesystem operations directly instead of git commands
 /// for much faster performance on large repositories.
 pub fn find_random_files(test_repo: &TestRepo) -> Result<RandomFiles, String> {
+    find_random_files_with_options(test_repo, FindRandomFilesOptions::default())
+}
+
+/// Find random files in a repository with custom options
+///
+/// Returns:
+/// - `random_file_count` random files from the repository
+/// - `large_file_count` random large files (by byte size, as a proxy for line count)
+///
+/// This helper uses filesystem operations directly instead of git commands
+/// for much faster performance on large repositories.
+pub fn find_random_files_with_options(
+    test_repo: &TestRepo,
+    options: FindRandomFilesOptions,
+) -> Result<RandomFiles, String> {
     use std::fs;
 
     let repo_path = test_repo.path();
@@ -439,18 +596,22 @@ pub fn find_random_files(test_repo: &TestRepo) -> Result<RandomFiles, String> {
         }
     }
 
-    // Sort by size descending and take top 2
+    // Sort by size descending and take top N
     file_sizes.sort_by(|a, b| b.1.cmp(&a.1));
-    let large_files: Vec<String> = file_sizes.into_iter().take(2).map(|(p, _)| p).collect();
+    let large_files: Vec<String> = file_sizes
+        .into_iter()
+        .take(options.large_file_count)
+        .map(|(p, _)| p)
+        .collect();
 
-    // Select 10 random files, excluding large files
+    // Select N random files, excluding large files
     let candidates: Vec<&String> = all_files
         .iter()
         .filter(|f| !large_files.contains(f))
         .collect();
 
     let random_files: Vec<String> = candidates
-        .choose_multiple(&mut rng, 10.min(candidates.len()))
+        .choose_multiple(&mut rng, options.random_file_count.min(candidates.len()))
         .map(|s| (*s).clone())
         .collect();
 
