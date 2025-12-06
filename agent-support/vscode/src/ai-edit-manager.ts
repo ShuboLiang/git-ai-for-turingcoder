@@ -183,6 +183,7 @@ export class AIEditManager {
                 hook_event_name: "after_edit",
                 chatSessionPath,
                 sessionId,
+                edited_filepaths: [filePath],
                 workspaceFolder: workspaceFolder.uri.fsPath,
                 dirtyFiles,
               }));
