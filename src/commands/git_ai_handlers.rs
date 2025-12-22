@@ -1,3 +1,5 @@
+use clap::builder::Str;
+
 use crate::authorship::range_authorship;
 use crate::authorship::stats::stats_command;
 use crate::authorship::working_log::{AgentId, CheckpointKind};
@@ -95,6 +97,15 @@ pub fn handle_git_ai(args: &[String]) {
         "show-prompt" => {
             commands::show_prompt::handle_show_prompt(&args[1..]);
         }
+        "myhelp" => {
+            handle_myhelp();
+        }
+        "proxy" => {
+            // 在末尾添加 --no-verify 参数，然后调用 handle_git
+            let mut proxy_args = args[1..].to_vec();
+            proxy_args.push("--no-verify".to_string());
+            commands::git_handlers::handle_git(&proxy_args);
+        }
         _ => {
             println!("Unknown git-ai command: {}", args[0]);
             std::process::exit(1);
@@ -139,6 +150,8 @@ fn print_help() {
     eprintln!("  git-path           Print the path to the underlying git executable");
     eprintln!("  upgrade            Check for updates and install if available");
     eprintln!("    --force               Reinstall latest version even if already up to date");
+    eprintln!("  proxy <git-command>  Proxy git command with git-ai hooks");
+    eprintln!("    Example: git-ai proxy commit -m \"message\"");
     eprintln!("  version, -v, --version     Print the git-ai version");
     eprintln!("  help, -h, --help           Show this help message");
     eprintln!("");
@@ -648,4 +661,73 @@ fn get_all_files_for_mock_ai(working_dir: &str) -> Vec<String> {
         Ok(filenames) => filenames.into_iter().collect(),
         Err(_) => Vec::new(),
     }
+}
+
+/// 自定义帮助命令：展示 git-ai 的核心概念和工作原理
+fn handle_myhelp() {
+    println!("════════════════════════════════════════════════════════════════");
+    println!("             🤖 git-ai 核心概念与工作原理 🤖");
+    println!("════════════════════════════════════════════════════════════════\n");
+
+    println!("📚 什么是 git-ai？");
+    println!("───────────────────────────────────────────────────────────────");
+    println!("git-ai 是一个 Git 包装器，用于追踪代码的真实作者（AI 或人工）。");
+
+    println!("🔄 核心工作流程");
+    println!("───────────────────────────────────────────────────────────────");
+    println!("1. 代码编写：你使用 AI 助手（如 Cursor、Copilot）编写代码");
+    println!("2. 创建检查点：git-ai 记录这些代码是 AI 生成的");
+    println!("3. 提交代码：使用 git commit，git-ai 自动追踪归属");
+    println!("4. 查看归属：使用 git-ai blame 查看每行代码的作者\n");
+
+    println!("🎯 关键概念");
+    println!("───────────────────────────────────────────────────────────────");
+    println!("• Checkpoint（检查点）");
+    println!("  - 代码快照，记录某个时刻的代码归属");
+    println!("  - 分为 Human（人工）和 AI（AI 生成）两种类型");
+    println!("");
+    println!("• Working Log（工作日志）");
+    println!("  - 提交前的临时检查点集合");
+    println!("  - 存储在 .git/ai/working_logs/ 目录");
+    println!("");
+    println!("• Authorship Log（归属日志）");
+    println!("  - 提交后的永久归属记录");
+    println!("  - 存储在 .git/ai/authorship/ 目录");
+    println!("");
+    println!("• Rewrite Log（重写日志）");
+    println!("  - 记录 Git 历史重写事件（如 amend、rebase）");
+    println!("  - 确保即使提交历史改变，归属信息仍然准确\n");
+
+    println!("💡 常用命令");
+    println!("───────────────────────────────────────────────────────────────");
+    println!("git-ai checkpoint        创建检查点（通常自动触发）");
+    println!("git-ai blame <file>      查看文件的代码归属");
+    println!("git-ai stats [commit]    查看提交的 AI/人工代码统计");
+    println!("git-ai diff <commit>     查看差异并标注归属");
+    println!("git-ai show <commit>     显示提交的归属日志");
+    println!("git-ai help              查看完整命令列表\n");
+
+    println!("🌟 实际例子");
+    println!("───────────────────────────────────────────────────────────────");
+    println!("# 1. Cursor 生成代码后创建检查点");
+    println!("$ git-ai checkpoint cursor");
+    println!("");
+    println!("# 2. 提交代码（git-ai 自动追踪）");
+    println!("$ git commit -m \"feat: add login\"");
+    println!("");
+    println!("# 3. 查看代码归属");
+    println!("$ git-ai blame src/login.rs");
+    println!("abc123 (Cursor)  1) fn login() {{");
+    println!("abc123 (Cursor)  2)     // AI 生成的代码");
+    println!("def456 (Human)   3)     // 你手动修改的代码");
+    println!("abc123 (Cursor)  4) }}\n");
+
+    println!("🔗 更多信息");
+    println!("───────────────────────────────────────────────────────────────");
+    println!("文档: https://github.com/acunniffe/git-ai");
+    println!("问题: https://github.com/acunniffe/git-ai/issues");
+    println!("");
+    println!("════════════════════════════════════════════════════════════════\n");
+
+    std::process::exit(0);
 }

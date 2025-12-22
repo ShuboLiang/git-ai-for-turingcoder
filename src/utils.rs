@@ -16,10 +16,6 @@ fn is_debug_enabled() -> bool {
     })
 }
 
-fn is_debug_performance_enabled() -> bool {
-    debug_performance_level() >= 1
-}
-
 fn debug_performance_level() -> u8 {
     *DEBUG_PERFORMANCE_LEVEL.get_or_init(|| {
         std::env::var("GIT_AI_DEBUG_PERFORMANCE")
@@ -29,6 +25,10 @@ fn debug_performance_level() -> u8 {
     })
 }
 
+fn is_debug_performance_enabled() -> bool {
+    debug_performance_level() >= 1
+}
+
 pub fn debug_performance_log(msg: &str) {
     if is_debug_performance_enabled() {
         eprintln!("\x1b[1;33m[git-ai (perf)]\x1b[0m {}", msg);
@@ -36,7 +36,8 @@ pub fn debug_performance_log(msg: &str) {
 }
 
 pub fn debug_performance_log_structured(json: serde_json::Value) {
-    if debug_performance_level() >= 2 {
+    let level = debug_performance_level();
+    if level >= 2 {
         eprintln!("\x1b[1;33m[git-ai (perf-json)]\x1b[0m {}", json);
     }
 }

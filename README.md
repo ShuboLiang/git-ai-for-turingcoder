@@ -21,7 +21,7 @@ curl -sSL https://raw.githubusercontent.com/acunniffe/git-ai/main/install.sh | b
 #### Windows (non-WSL)
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/acunniffe/git-ai/main/install.ps1 | iex"
+
 ```
 
 🎊 That's it! **No per-repo setup.** Once installed Git AI will work OOTB with any of these **Supported Agents**:
@@ -74,22 +74,22 @@ A PR Bot aggregates `git-ai` data at the PR, Repository and Organization levels:
 
 `git-ai` automatically sets up all supported agent hooks using the `git-ai install-hooks` command
 
-| Agent/IDE                                                                                  | Authorship | Prompts |
-| ------------------------------------------------------------------------------------------ | ---------- | ------- |
-| [Cursor &gt;1.7](https://usegitai.com/docs/cursor)                                         | ✅         | ✅      |
-| [Claude Code](https://usegitai.com/docs/claude-code)                                       | ✅         | ✅      |
-| [GitHub Copilot in VSCode via Extension](https://usegitai.com/docs/vs-code-github-copilot) | ✅         | ✅      |
-| Google Gemini CLI (in nightly, GA coming soon)                                             | ✅         | ✅      |
-| OpenCode                                                                                   | ✅         | ✅      |
-| Atlassian RovoDev CLI                                                                      | ✅         | ✅      |
-| Continue CLI (in-progress)                                                                 | 🔄         | 🔄      |
-| Continue VS Code/IntelliJ (in-progress)                                                    | 🔄         | 🔄      |
+| Agent/IDE                                                                                   | Authorship | Prompts |
+| ------------------------------------------------------------------------------------------- | ---------- | ------- |
+| [Cursor &gt;1.7](https://usegitai.com/docs/cursor)                                          | ✅         | ✅      |
+| [Claude Code](https://usegitai.com/docs/claude-code)                                        | ✅         | ✅      |
+| [GitHub Copilot in VSCode via Extension](https://usegitai.com/docs/vs-code-github-copilot)  | ✅         | ✅      |
+| Google Gemini CLI (in nightly, GA coming soon)                                              | ✅         | ✅      |
+| OpenCode                                                                                    | ✅         | ✅      |
+| Atlassian RovoDev CLI                                                                       | ✅         | ✅      |
+| Continue CLI (in-progress)                                                                  | 🔄         | 🔄      |
+| Continue VS Code/IntelliJ (in-progress)                                                     | 🔄         | 🔄      |
 | OpenAI Codex (waiting on [openai/codex #2109](https://github.com/openai/codex/issues/2109)) |            |         |
-| Junie &amp; Jetbrains IDEs                                                                 |            |         |
-| Ona                                                                                        |            |         |
-| Sourcegraph Cody + Amp                                                                     |            |         |
-| Google Antigravity                                                                         |            |         |
-| Windsurf                                                                                   |            |         |
-| _your agent here_                                                                          |            |         |
+| Junie &amp; Jetbrains IDEs                                                                  |            |         |
+| Ona                                                                                         |            |         |
+| Sourcegraph Cody + Amp                                                                      |            |         |
+| Google Antigravity                                                                          |            |         |
+| Windsurf                                                                                    |            |         |
+| _your agent here_                                                                           |            |         |
 
 > **Building a Coding Agent?** [Add support for Git AI by following this guide](https://usegitai.com/docs/add-your-agent)

@@ -15,6 +15,7 @@ use std::sync::RwLock;
 /// Centralized configuration for the application
 pub struct Config {
     git_path: String,
+    git_path_source: String, // 记录 git_path 的来源
     ignore_prompts: bool,
     allow_repositories: Vec<Pattern>,
     exclude_repositories: Vec<Pattern>,
@@ -114,6 +115,11 @@ impl Config {
     /// Returns the command to invoke git.
     pub fn git_cmd(&self) -> &str {
         &self.git_path
+    }
+
+    /// Returns the source of git_path (how it was found).
+    pub fn git_cmd_source(&self) -> &str {
+        &self.git_path_source
     }
 
     #[allow(dead_code)]
@@ -298,7 +304,7 @@ fn build_config() -> Config {
         .and_then(UpdateChannel::from_str)
         .unwrap_or_default();
 
-    let git_path = resolve_git_path(&file_cfg);
+    let (git_path, git_path_source) = resolve_git_path(&file_cfg);
 
     // Build feature flags from file config
     let feature_flags = build_feature_flags(&file_cfg);
@@ -307,6 +313,7 @@ fn build_config() -> Config {
     {
         let mut config = Config {
             git_path,
+            git_path_source,
             ignore_prompts,
             allow_repositories,
             exclude_repositories,
@@ -324,6 +331,7 @@ fn build_config() -> Config {
     #[cfg(not(any(test, feature = "test-support")))]
     Config {
         git_path,
+        git_path_source,
         ignore_prompts,
         allow_repositories,
         exclude_repositories,
@@ -348,7 +356,7 @@ fn build_feature_flags(file_cfg: &Option<FileConfig>) -> FeatureFlags {
     FeatureFlags::from_env_and_file(file_flags)
 }
 
-fn resolve_git_path(file_cfg: &Option<FileConfig>) -> String {
+fn resolve_git_path(file_cfg: &Option<FileConfig>) -> (String, String) {
     // 1) From config file
     if let Some(cfg) = file_cfg {
         if let Some(path) = cfg.git_path.as_ref() {
@@ -356,7 +364,10 @@ fn resolve_git_path(file_cfg: &Option<FileConfig>) -> String {
             if !trimmed.is_empty() {
                 let p = Path::new(trimmed);
                 if is_executable(p) {
-                    return trimmed.to_string();
+                    let config_path = config_file_path()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "~/.git-ai/config.json".to_string());
+                    return (trimmed.to_string(), format!("配置文件({})", config_path));
                 }
             }
         }
@@ -373,12 +384,13 @@ fn resolve_git_path(file_cfg: &Option<FileConfig>) -> String {
         "/usr/local/sbin/git",
         "/usr/sbin/git",
         // Windows Git for Windows
-        r"C:\\Program Files\\Git\\bin\\git.exe",
-        r"C:\\Program Files (x86)\\Git\\bin\\git.exe",
+        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files (x86)\Git\bin\git.exe",
     ];
 
     if let Some(found) = candidates.iter().map(Path::new).find(|p| is_executable(p)) {
-        return found.to_string_lossy().to_string();
+        let path_str = found.to_string_lossy().to_string();
+        return (path_str, "系统探测".to_string());
     }
 
     // 3) Fatal error: no real git found
@@ -453,6 +465,7 @@ mod tests {
     ) -> Config {
         Config {
             git_path: "/usr/bin/git".to_string(),
+            git_path_source: "测试".to_string(),
             ignore_prompts: false,
             allow_repositories: allow_repositories
                 .into_iter()

@@ -873,6 +873,38 @@ impl Repository {
         }
     }
 
+    /// 处理 rewrite log 事件：记录 Git 历史重写操作并更新代码归属
+    ///
+    /// # 参数
+    /// * `rewrite_log_event` - 重写日志事件（commit、amend、rebase 等）
+    /// * `commit_author` - 提交作者信息
+    /// * `supress_output` - 是否抑制输出
+    /// * `apply_side_effects` - 是否应用副作用（转换 working log 为 authorship log）
+    ///
+    /// # 功能说明
+    /// 这是 git-ai 代码归属追踪的核心函数，处理两个关键任务：
+    ///
+    /// 1. **记录 Git 历史重写事件**
+    ///    - 将事件追加到 `.git/ai/rewrite_log` 文件中
+    ///    - 记录 commit、amend、rebase、cherry-pick 等操作
+    ///    - 用于追踪提交历史的变更，确保代码归属的准确性
+    ///
+    /// 2. **转换工作日志为归属日志**（当 apply_side_effects=true 时）
+    ///    - 将临时的 working log（检查点数据）转换为永久的 authorship log
+    ///    - 这是完成代码归属追踪的关键步骤
+    ///    - 只有在实际提交发生时才执行（非 dry-run、非失败提交）
+    ///
+    /// # Rewrite Log 的作用
+    /// Rewrite log 记录了所有可能改变提交历史的操作：
+    /// - `commit`: 普通提交，创建新的 commit
+    /// - `commit_amend`: 修改提交，替换已有的 commit
+    /// - `rebase`: 变基操作，重写多个 commit
+    /// - `cherry_pick`: 挑选提交，复制 commit 到当前分支
+    ///
+    /// 这些记录用于：
+    /// - 追踪代码的真实来源（即使提交历史被重写）
+    /// - 在 blame 时正确显示代码归属
+    /// - 处理复杂的 Git 操作（如交互式 rebase）
     pub fn handle_rewrite_log_event(
         &mut self,
         rewrite_log_event: RewriteLogEvent,
@@ -880,13 +912,24 @@ impl Repository {
         supress_output: bool,
         apply_side_effects: bool,
     ) {
+        // 步骤 1: 将 rewrite 事件追加到持久化日志中
+        // 这个日志存储在 .git/ai/rewrite_log 文件中
+        // 记录所有改变提交历史的操作，用于后续的归属追踪和 blame 功能
         let log = self
             .storage
             .append_rewrite_event(rewrite_log_event.clone())
             .ok()
             .expect("Error writing .git/ai/rewrite_log");
 
+        // 步骤 2: 如果需要应用副作用，则重写代码归属
+        // apply_side_effects=true 表示这是一个实际的提交操作
+        // 此时需要将 working log 转换为 authorship log，完成代码归属追踪
         if apply_side_effects {
+            // rewrite_authorship_if_needed 执行以下关键操作：
+            // 1. 读取当前的 working log（包含所有检查点数据）
+            // 2. 将 working log 转换为 authorship log（永久归属记录）
+            // 3. 清理 working log，为下一次提交做准备
+            // 4. 更新 .git/ai/authorship/ 目录下的归属数据
             match rewrite_authorship_if_needed(
                 self,
                 &rewrite_log_event,
@@ -894,9 +937,11 @@ impl Repository {
                 &log,
                 supress_output,
             ) {
-                Ok(_) => (),
-                Err(_) => {}
+                Ok(_) => (), // 成功：归属数据已更新
+                Err(_) => {} // 失败：静默处理，不影响 Git 操作
             }
+            // 注意：即使 rewrite_authorship_if_needed 失败，Git 操作仍会成功
+            // 这是优雅降级策略：git-ai 的问题不应阻止用户使用 Git
         }
     }
 
