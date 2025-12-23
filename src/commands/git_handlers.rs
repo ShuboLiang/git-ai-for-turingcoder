@@ -491,6 +491,9 @@ fn proxy_to_git(args: &[String], exit_on_completion: bool) -> std::process::Exit
     eprintln!("[git-ai] 真实 git 路径: {}", git_path);
     eprintln!("[git-ai] 查找方式: {}", git_source);
 
+    // 检查是否为commit命令，需要禁用prepare-commit-msg钩子
+    let is_commit_command = args.first().map(|s| s.as_str()) == Some("commit");
+
     // 使用 spawn 方式启动子进程，支持交互式命令（如 rebase -i、commit 编辑器等）
     let child = {
         #[cfg(unix)]
@@ -503,6 +506,15 @@ fn proxy_to_git(args: &[String], exit_on_completion: bool) -> std::process::Exit
 
             let mut cmd = Command::new(config::Config::get().git_cmd());
             cmd.args(args);
+
+            // 为commit命令设置环境变量，禁用prepare-commit-msg钩子
+            if is_commit_command {
+                // 通过设置一个空的hooks路径来禁用所有Git钩子
+                cmd.env("GIT_CONFIG_COUNT", "1");
+                cmd.env("GIT_CONFIG_KEY_0", "core.hooksPath");
+                cmd.env("GIT_CONFIG_VALUE_0", "/dev/null");
+            }
+
             unsafe {
                 let setpgid_flag = should_setpgid;
                 cmd.pre_exec(move || {
@@ -521,9 +533,18 @@ fn proxy_to_git(args: &[String], exit_on_completion: bool) -> std::process::Exit
         }
         #[cfg(not(unix))]
         {
-            Command::new(config::Config::get().git_cmd())
-                .args(args)
-                .spawn()
+            let mut cmd = Command::new(config::Config::get().git_cmd());
+            cmd.args(args);
+
+            // 为commit命令设置环境变量，禁用prepare-commit-msg钩子
+            if is_commit_command {
+                // 通过设置一个空的hooks路径来禁用所有Git钩子
+                cmd.env("GIT_CONFIG_COUNT", "1");
+                cmd.env("GIT_CONFIG_KEY_0", "core.hooksPath");
+                cmd.env("GIT_CONFIG_VALUE_0", "nul"); // Windows使用nul而不是/dev/null
+            }
+
+            cmd.spawn()
         }
     };
 

@@ -101,10 +101,13 @@ pub fn handle_git_ai(args: &[String]) {
             handle_myhelp();
         }
         "proxy" => {
-            // 在末尾添加 --no-verify 参数，然后调用 handle_git
-            let mut proxy_args = args[1..].to_vec();
-            proxy_args.push("--no-verify".to_string());
-            commands::git_handlers::handle_git(&proxy_args);
+            // 直接调用 handle_git，传入剩余参数
+            let args: Vec<String> = args
+                .iter()
+                .cloned()
+                .chain(std::iter::once("--no-verify".to_string()))
+                .collect();
+            let args = commands::git_handlers::handle_git(&args[1..]);
         }
         _ => {
             println!("Unknown git-ai command: {}", args[0]);
