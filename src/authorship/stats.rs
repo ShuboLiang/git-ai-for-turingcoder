@@ -85,6 +85,7 @@ pub fn stats_command(
     } else {
         // Default behavior: use current HEAD
         let head = repo.head()?;
+
         let target = head.target()?;
         let name = head.name().unwrap_or("HEAD").to_string();
         (target, name)

@@ -50,6 +50,7 @@ pub enum CheckpointKind {
     Human,
     AiAgent,
     AiTab,
+    Mixed, // AI and human mixed authorship
 }
 
 impl fmt::Display for CheckpointKind {
@@ -65,6 +66,7 @@ impl CheckpointKind {
             "human" => CheckpointKind::Human,
             "ai_agent" => CheckpointKind::AiAgent,
             "ai_tab" => CheckpointKind::AiTab,
+            "mixed" => CheckpointKind::Mixed,
             _ => panic!("Invalid checkpoint kind: {}", s),
         }
     }
@@ -74,6 +76,7 @@ impl CheckpointKind {
             CheckpointKind::Human => "human".to_string(),
             CheckpointKind::AiAgent => "ai_agent".to_string(),
             CheckpointKind::AiTab => "ai_tab".to_string(),
+            CheckpointKind::Mixed => "mixed".to_string(),
         }
     }
 

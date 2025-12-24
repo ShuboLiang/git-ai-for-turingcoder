@@ -1,5 +1,6 @@
 use crate::authorship::attribution_tracker::{
     Attribution, LineAttribution, line_attributions_to_attributions,
+    attributions_to_line_attributions,
 };
 use crate::authorship::authorship_log::{LineRange, PromptRecord};
 use crate::authorship::working_log::CheckpointKind;
@@ -387,10 +388,19 @@ impl VirtualAttributions {
                     file_contents.insert(entry.file.clone(), file_content);
                 }
 
-                // Use the line attributions from the checkpoint
-                let line_attrs = entry.line_attributions.clone();
+                // Use character-level attributions from checkpoint if available
+                // (this preserves fine-grained authorship history)
+                let char_attrs = if !entry.attributions.is_empty() {
+                    entry.attributions.clone()
+                } else {
+                    // Fallback: generate from line attributions
+                    let file_content = file_contents.get(&entry.file).cloned().unwrap_or_default();
+                    line_attributions_to_attributions(&entry.line_attributions, &file_content, 0)
+                };
+
+                // Convert char_attrs to line_attrs for consistency
                 let file_content = file_contents.get(&entry.file).cloned().unwrap_or_default();
-                let char_attrs = line_attributions_to_attributions(&line_attrs, &file_content, 0);
+                let line_attrs = attributions_to_line_attributions(&char_attrs, &file_content);
 
                 attributions.insert(entry.file.clone(), (char_attrs, line_attrs));
             }
@@ -520,30 +530,50 @@ impl VirtualAttributions {
                 continue;
             }
 
-            // Group line attributions by author
-            let mut author_lines: HashMap<String, Vec<u32>> = HashMap::new();
+            // Group lines by (author_id, overrode) tuple
+            // Key format: "author_id" or "author_id|overrode_ai_session_id"
+            let mut grouped_lines: HashMap<String, Vec<u32>> = HashMap::new();
             for line_attr in line_attrs {
-                // Skip human attributions - we only track AI attributions
-                if line_attr.author_id == CheckpointKind::Human.to_str() {
+                // Skip human attributions without overrode - we only track AI attributions
+                if line_attr.author_id == CheckpointKind::Human.to_str() && line_attr.overrode.is_none() {
                     continue;
                 }
 
+                // Create grouping key
+                let group_key = if let Some(ref overrode) = line_attr.overrode {
+                    // Human modified AI content: use "ai_session_id|overrode:ai_session_id" format
+                    // This represents: AI wrote this line, but human modified it
+                    format!("{}|overrode:{}", line_attr.author_id, overrode)
+                } else {
+                    // Pure AI content (not modified by human)
+                    line_attr.author_id.clone()
+                };
+
                 for line in line_attr.start_line..=line_attr.end_line {
-                    author_lines
-                        .entry(line_attr.author_id.clone())
+                    grouped_lines
+                        .entry(group_key.clone())
                         .or_default()
                         .push(line);
                 }
             }
 
-            // Create attestation entries for each author
-            for (author_id, mut lines) in author_lines {
+            // Create attestation entries for each group
+            for (group_key, mut lines) in grouped_lines {
                 lines.sort();
                 lines.dedup();
 
                 if lines.is_empty() {
                     continue;
                 }
+
+                // Parse the group key to extract author_id and overrode
+                let (author_id, overrode) = if let Some(overrode_pos) = group_key.find("|overrode:") {
+                    let ai_id = &group_key[..overrode_pos];
+                    let overrode_ai_id = &group_key[overrode_pos + 9..]; // Skip "|overrode:"
+                    (ai_id.to_string(), Some(overrode_ai_id.to_string()))
+                } else {
+                    (group_key.clone(), None)
+                };
 
                 // Create line ranges
                 let mut ranges = Vec::new();
@@ -581,9 +611,9 @@ impl VirtualAttributions {
                     ));
                 }
 
-                // Create attestation entry
-                let entry = crate::authorship::authorship_log_serialization::AttestationEntry::new(
-                    author_id, ranges,
+                // Create attestation entry with overrode info
+                let entry = crate::authorship::authorship_log_serialization::AttestationEntry::with_overrode(
+                    author_id, ranges, overrode,
                 );
 
                 // Add to authorship log
@@ -816,6 +846,7 @@ impl VirtualAttributions {
             // Split line attributions into committed and uncommitted
             // VirtualAttributions has line numbers in working directory coordinates,
             // so we need to convert to commit coordinates before comparing with committed hunks
+            // Key format: "author_id" or "author_id|overrode:ai_session_id"
             let mut committed_lines_map: StdHashMap<String, Vec<u32>> = StdHashMap::new();
             let mut uncommitted_lines_map: StdHashMap<String, Vec<u32>> = StdHashMap::new();
 
@@ -823,6 +854,13 @@ impl VirtualAttributions {
             let file_committed_hunks = committed_hunks.get(file_path);
 
             for line_attr in line_attrs {
+                // Create grouping key that includes overrode info
+                let group_key = if let Some(ref overrode) = line_attr.overrode {
+                    format!("{}|overrode:{}", line_attr.author_id, overrode)
+                } else {
+                    line_attr.author_id.clone()
+                };
+
                 // Check each line individually
                 for workdir_line_num in line_attr.start_line..=line_attr.end_line {
                     // Check if this line is unstaged (in working directory but not in commit)
@@ -831,7 +869,7 @@ impl VirtualAttributions {
                     if is_unstaged {
                         // Line is unstaged, mark as uncommitted
                         uncommitted_lines_map
-                            .entry(line_attr.author_id.clone())
+                            .entry(group_key.clone())
                             .or_default()
                             .push(workdir_line_num);
                         referenced_prompts.insert(line_attr.author_id.clone());
@@ -854,7 +892,7 @@ impl VirtualAttributions {
                         if is_committed {
                             // Line was committed in this commit (use commit coordinates)
                             committed_lines_map
-                                .entry(line_attr.author_id.clone())
+                                .entry(group_key.clone())
                                 .or_default()
                                 .push(commit_line_num);
                         } else {
@@ -868,9 +906,18 @@ impl VirtualAttributions {
             // Add committed attributions to authorship log
             if !committed_lines_map.is_empty() {
                 // Create attestation entries from committed lines
-                for (author_id, mut lines) in committed_lines_map {
-                    // Skip human attributions - we only track AI attributions in the output
-                    if author_id == CheckpointKind::Human.to_str() {
+                for (group_key, mut lines) in committed_lines_map {
+                    // Parse the group key to extract author_id and overrode
+                    let (author_id, overrode) = if let Some(overrode_pos) = group_key.find("|overrode:") {
+                        let ai_id = &group_key[..overrode_pos];
+                        let overrode_ai_id = &group_key[overrode_pos + 9..]; // Skip "|overrode:"
+                        (ai_id.to_string(), Some(overrode_ai_id.to_string()))
+                    } else {
+                        (group_key.clone(), None)
+                    };
+
+                    // Skip human attributions without overrode - we only track AI attributions in the output
+                    if author_id == CheckpointKind::Human.to_str() && overrode.is_none() {
                         continue;
                     }
 
@@ -918,8 +965,8 @@ impl VirtualAttributions {
                     }
 
                     let entry =
-                        crate::authorship::authorship_log_serialization::AttestationEntry::new(
-                            author_id, ranges,
+                        crate::authorship::authorship_log_serialization::AttestationEntry::with_overrode(
+                            author_id, ranges, overrode,
                         );
 
                     let file_attestation = authorship_log.get_or_create_file(file_path);
@@ -931,9 +978,18 @@ impl VirtualAttributions {
             if !uncommitted_lines_map.is_empty() {
                 // Convert the map into line attributions
                 let mut uncommitted_line_attrs = Vec::new();
-                for (author_id, mut lines) in uncommitted_lines_map {
-                    // Skip human attributions - we only track AI attributions in the output
-                    if author_id == CheckpointKind::Human.to_str() {
+                for (group_key, mut lines) in uncommitted_lines_map {
+                    // Parse the group key to extract author_id and overrode
+                    let (author_id, overrode) = if let Some(overrode_pos) = group_key.find("|overrode:") {
+                        let ai_id = &group_key[..overrode_pos];
+                        let overrode_ai_id = &group_key[overrode_pos + 9..]; // Skip "|overrode:"
+                        (ai_id.to_string(), Some(overrode_ai_id.to_string()))
+                    } else {
+                        (group_key.clone(), None)
+                    };
+
+                    // Skip human attributions without overrode - we only track AI attributions in the output
+                    if author_id == CheckpointKind::Human.to_str() && overrode.is_none() {
                         continue;
                     }
 
@@ -957,7 +1013,7 @@ impl VirtualAttributions {
                                 start_line: range_start,
                                 end_line: range_end,
                                 author_id: author_id.clone(),
-                                overrode: None,
+                                overrode: overrode.clone(),
                             });
                             range_start = line;
                             range_end = line;
@@ -969,7 +1025,7 @@ impl VirtualAttributions {
                         start_line: range_start,
                         end_line: range_end,
                         author_id: author_id.clone(),
-                        overrode: None,
+                        overrode: overrode.clone(),
                     });
                 }
 

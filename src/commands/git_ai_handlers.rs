@@ -1,5 +1,3 @@
-use clap::builder::Str;
-
 use crate::authorship::range_authorship;
 use crate::authorship::stats::stats_command;
 use crate::authorship::working_log::{AgentId, CheckpointKind};
@@ -52,6 +50,12 @@ pub fn handle_git_ai(args: &[String]) {
         }
         "stats" => {
             handle_stats(&args[1..]);
+        }
+        "working-stats" => {
+            if let Err(e) = commands::working_stats::handle_working_stats(&args[1..]) {
+                eprintln!("Working stats failed: {}", e);
+                std::process::exit(1);
+            }
         }
         "show" => {
             commands::show::handle_show(&args[1..]);
@@ -136,6 +140,9 @@ fn print_help() {
     eprintln!("    <commit1>..<commit2>  Diff between two commits");
     eprintln!("  stats [commit]     Show AI authorship statistics for a commit");
     eprintln!("    --json                 Output in JSON format");
+    eprintln!("  working-stats      Show AI authorship statistics for uncommitted changes");
+    eprintln!("    --json                 Output in JSON format");
+    eprintln!("    --ignore <pattern>     Ignore files matching pattern");
     eprintln!("  show <rev|range>   Display authorship logs for a revision or range");
     eprintln!("  show-prompt <id>   Display a prompt record by its ID");
     eprintln!("    --commit <rev>        Look in a specific commit only");

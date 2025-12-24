@@ -431,9 +431,9 @@ impl PersistedWorkingLog {
         let checkpoints = self.read_all_checkpoints()?;
         let mut touched_files = HashSet::new();
         for checkpoint in checkpoints {
-            // Only include files from AI checkpoints (AiAgent or AiTab)
+            // Only include files from AI checkpoints (AiAgent, AiTab, or Mixed)
             match checkpoint.kind {
-                CheckpointKind::AiAgent | CheckpointKind::AiTab => {
+                CheckpointKind::AiAgent | CheckpointKind::AiTab | CheckpointKind::Mixed => {
                     for entry in checkpoint.entries {
                         touched_files.insert(entry.file);
                     }

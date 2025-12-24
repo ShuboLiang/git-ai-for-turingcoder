@@ -56,11 +56,27 @@ pub struct AttestationEntry {
     pub hash: String,
     /// Line ranges that this prompt is responsible for
     pub line_ranges: Vec<LineRange>,
+    /// Optional field indicating which AI session was overridden by human edits
+    /// If Some(session_hash), it means this line was originally written by the AI session
+    /// identified by session_hash, but was later modified by a human
+    pub overrode: Option<String>,
 }
 
 impl AttestationEntry {
     pub fn new(hash: String, line_ranges: Vec<LineRange>) -> Self {
-        Self { hash, line_ranges }
+        Self {
+            hash,
+            line_ranges,
+            overrode: None,
+        }
+    }
+
+    pub fn with_overrode(hash: String, line_ranges: Vec<LineRange>, overrode: Option<String>) -> Self {
+        Self {
+            hash,
+            line_ranges,
+            overrode,
+        }
     }
 
     #[allow(dead_code)]
@@ -171,6 +187,10 @@ impl AuthorshipLog {
                 output.push_str(&entry.hash);
                 output.push(' ');
                 output.push_str(&format_line_ranges(&entry.line_ranges));
+                // Add overrode field if present
+                if let Some(ref overrode) = entry.overrode {
+                    output.push_str(&format!(" overrode:{}", overrode));
+                }
                 output.push('\n');
             }
         }
@@ -229,13 +249,14 @@ impl AuthorshipLog {
     }
 
     /// Lookup the author and optional prompt for a given file and line
+    /// Returns: (Author, prompt_hash, prompt_record, overrode)
     pub fn get_line_attribution(
         &self,
         repo: &Repository,
         file: &str,
         line: u32,
         foreign_prompts_cache: &mut HashMap<String, Option<PromptRecord>>,
-    ) -> Option<(Author, Option<String>, Option<PromptRecord>)> {
+    ) -> Option<(Author, Option<String>, Option<PromptRecord>, Option<String>)> {
         // Find the file attestation
         let file_attestation = self.attestations.iter().find(|f| f.file_path == file)?;
 
@@ -244,6 +265,7 @@ impl AuthorshipLog {
             // Check if this line is covered by any of the line ranges
             let contains = entry.line_ranges.iter().any(|range| range.contains(line));
             if contains {
+                let overrode = entry.overrode.clone();
                 // The hash corresponds to a prompt session short hash
                 if let Some(prompt_record) = self.metadata.prompts.get(&entry.hash) {
                     // Create author info from the prompt record
@@ -257,6 +279,7 @@ impl AuthorshipLog {
                         author,
                         Some(entry.hash.clone()),
                         Some(prompt_record.clone()),
+                        overrode,
                     ));
                 } else {
                     // Check cache first before grepping
@@ -290,7 +313,7 @@ impl AuthorshipLog {
                             username: prompt_record.agent_id.tool.clone(),
                             email: String::new(), // AI agents don't have email
                         };
-                        return Some((author, Some(entry.hash.clone()), Some(prompt_record)));
+                        return Some((author, Some(entry.hash.clone()), Some(prompt_record), overrode));
                     }
                 }
             }
@@ -576,10 +599,20 @@ fn parse_attestation_section(
             // Split on first space to separate hash from line ranges
             if let Some(space_pos) = entry_line.find(' ') {
                 let hash = entry_line[..space_pos].to_string();
-                let ranges_str = &entry_line[space_pos + 1..];
+                let rest = &entry_line[space_pos + 1..];
+
+                // Check if there's an "overrode:" suffix
+                let (ranges_str, overrode) = if let Some(overrode_pos) = rest.find(" overrode:") {
+                    let ranges_str = &rest[..overrode_pos];
+                    let overrode_hash = &rest[overrode_pos + 9..]; // Skip " overrode:"
+                    (ranges_str, Some(overrode_hash.to_string()))
+                } else {
+                    (rest, None)
+                };
+
                 let line_ranges = parse_line_ranges(ranges_str)?;
 
-                let entry = AttestationEntry::new(hash, line_ranges);
+                let entry = AttestationEntry::with_overrode(hash, line_ranges, overrode);
 
                 if let Some(ref mut file_attestation) = current_file {
                     file_attestation.add_entry(entry);

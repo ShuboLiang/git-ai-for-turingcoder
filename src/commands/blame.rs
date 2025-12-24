@@ -633,83 +633,182 @@ fn overlay_ai_authorship(
     let mut line_authors: HashMap<u32, String> = HashMap::new();
     let mut prompt_records: HashMap<String, PromptRecord> = HashMap::new();
 
-    // Group hunks by commit SHA to avoid repeated lookups
+    // Cache for authorship logs and foreign prompts to avoid repeated lookups
     let mut commit_authorship_cache: HashMap<String, Option<AuthorshipLog>> = HashMap::new();
-    // Cache for foreign prompts to avoid repeated grepping
     let mut foreign_prompts_cache: HashMap<String, Option<PromptRecord>> = HashMap::new();
 
+    // Process each hunk
     for hunk in blame_hunks {
-        // Check if we've already looked up this commit's authorship
+        // Get authorship log for this commit (with caching)
         let authorship_log = if let Some(cached) = commit_authorship_cache.get(&hunk.commit_sha) {
             cached.clone()
         } else {
-            // Try to get authorship log for this commit
             let authorship = match get_reference_as_authorship_log_v3(repo, &hunk.commit_sha) {
                 Ok(v3_log) => Some(v3_log),
-                Err(_) => None, // No AI authorship data for this commit
+                Err(_) => None,
             };
             commit_authorship_cache.insert(hunk.commit_sha.clone(), authorship.clone());
             authorship
         };
 
-        // If we have AI authorship data, look up the author for lines in this hunk
-        if let Some(authorship_log) = authorship_log {
-            // Check each line in this hunk for AI authorship using compact schema
-            // IMPORTANT: Use the original line numbers from the commit, not the current line numbers
-            let num_lines = hunk.range.1 - hunk.range.0 + 1;
-            for i in 0..num_lines {
-                let current_line_num = hunk.range.0 + i;
-                let orig_line_num = hunk.orig_range.0 + i;
+        // Process each line in this hunk
+        let num_lines = hunk.range.1 - hunk.range.0 + 1;
+        for i in 0..num_lines {
+            let current_line_num = hunk.range.0 + i;
+            let orig_line_num = hunk.orig_range.0 + i;
 
-                if let Some((author, prompt_hash, prompt)) = authorship_log.get_line_attribution(
-                    repo,
-                    file_path,
-                    orig_line_num,
-                    &mut foreign_prompts_cache,
-                ) {
-                    // If this line is AI-assisted, display the tool name; otherwise the human username
-                    if let Some(prompt_record) = prompt {
-                        let prompt_hash = prompt_hash.unwrap();
-                        if options.use_prompt_hashes_as_names {
-                            line_authors.insert(current_line_num, prompt_hash.clone());
+            // Determine the author for this line
+            let final_author = if let Some(ref authorship_log) = authorship_log {
+                // Check if this line has AI authorship in the latest commit
+                if let Some((author, prompt_hash, prompt, overrode)) = authorship_log
+                    .get_line_attribution(
+                        repo,
+                        file_path,
+                        orig_line_num,
+                        &mut foreign_prompts_cache,
+                    )
+                {
+                    let latest_is_ai = prompt.is_some();
+                    // If overrode is Some, it means this line in current commit has been marked as overridden
+                    let is_overridden_in_current = overrode.is_some();
+
+                    // Find the first author by tracing commit history
+                    let first_is_ai = find_first_author(
+                        repo,
+                        file_path,
+                        current_line_num,
+                        &hunk.commit_sha,
+                        &mut commit_authorship_cache,
+                        &mut foreign_prompts_cache,
+                    )?;
+
+                    // Apply the authorship rules based on overrode field:
+                    // - If overrode is Some: this line was modified by human after AI wrote it → mixed
+                    // - Otherwise: show the current author (AI or human)
+
+                    if is_overridden_in_current {
+                        // AI写的被用户改了部分内容 → mixed
+                        CheckpointKind::Mixed.to_str().to_string()
+                    } else if latest_is_ai {
+                        // 完全是AI写的 → AI姓名
+                        if let Some(prompt_record) = prompt {
+                            let prompt_hash = prompt_hash.unwrap();
+                            if options.use_prompt_hashes_as_names {
+                                prompt_records.insert(prompt_hash.clone(), prompt_record.clone());
+                                prompt_hash
+                            } else {
+                                let tool = prompt_record.agent_id.tool.clone();
+                                prompt_records.insert(prompt_hash, prompt_record.clone());
+                                tool
+                            }
                         } else {
-                            line_authors
-                                .insert(current_line_num, prompt_record.agent_id.tool.clone());
+                            if options.return_human_authors_as_human {
+                                CheckpointKind::Human.to_str().to_string()
+                            } else {
+                                author.username.clone()
+                            }
                         }
-                        prompt_records.insert(prompt_hash, prompt_record.clone());
                     } else {
+                        // 完全是用户写的 → 用户姓名
                         if options.return_human_authors_as_human {
-                            line_authors.insert(
-                                current_line_num,
-                                CheckpointKind::Human.to_str().to_string(),
-                            );
+                            CheckpointKind::Human.to_str().to_string()
                         } else {
-                            line_authors.insert(current_line_num, author.username.clone());
+                            author.username.clone()
                         }
                     }
                 } else {
-                    // Fall back to original author if no AI authorship
+                    // No AI authorship data for this line in latest commit
                     if options.return_human_authors_as_human {
-                        line_authors
-                            .insert(current_line_num, CheckpointKind::Human.to_str().to_string());
+                        CheckpointKind::Human.to_str().to_string()
                     } else {
-                        line_authors.insert(current_line_num, hunk.original_author.clone());
+                        hunk.original_author.clone()
                     }
                 }
-            }
-        } else {
-            // No authorship log, use original author for all lines in hunk
-            for line_num in hunk.range.0..=hunk.range.1 {
+            } else {
+                // No authorship log for this commit
                 if options.return_human_authors_as_human {
-                    line_authors.insert(line_num, CheckpointKind::Human.to_str().to_string());
+                    CheckpointKind::Human.to_str().to_string()
                 } else {
-                    line_authors.insert(line_num, hunk.original_author.clone());
+                    hunk.original_author.clone()
                 }
-            }
+            };
+
+            line_authors.insert(current_line_num, final_author);
         }
     }
 
     Ok((line_authors, prompt_records))
+}
+
+/// Find the first author of a line by tracing back through git history
+/// Returns true if the first author was AI, false if Human
+fn find_first_author(
+    repo: &Repository,
+    file_path: &str,
+    line_num: u32,
+    latest_commit: &str,
+    commit_authorship_cache: &mut HashMap<String, Option<AuthorshipLog>>,
+    foreign_prompts_cache: &mut HashMap<String, Option<PromptRecord>>,
+) -> Result<bool, GitAiError> {
+    // Use git log -L to trace the history of this specific line
+    let mut args = repo.global_args_for_exec();
+    args.push("log".to_string());
+    args.push("--pretty=format:%H".to_string()); // Output only commit hashes
+    args.push("--follow".to_string()); // Follow file renames
+    args.push(format!("-L{},{}:{}", line_num, line_num, file_path));
+    args.push(latest_commit.to_string());
+
+    // Execute git log command
+    let output = match exec_git(&args) {
+        Ok(output) => output,
+        Err(_) => {
+            // If git log fails, assume Human
+            return Ok(false);
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let commits: Vec<&str> = stdout
+        .lines()
+        .filter(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_hexdigit()))
+        .collect();
+
+    if commits.is_empty() {
+        // No history found, assume Human
+        return Ok(false);
+    }
+
+    // The LAST commit in the list is the first commit that introduced/modified this line
+    let first_commit = commits.last().unwrap();
+
+    // Check if this first commit has AI authorship data
+    let authorship_log = if let Some(cached) = commit_authorship_cache.get(*first_commit) {
+        cached.clone()
+    } else {
+        let authorship = match get_reference_as_authorship_log_v3(repo, first_commit) {
+            Ok(v3_log) => Some(v3_log),
+            Err(_) => None,
+        };
+        commit_authorship_cache.insert(first_commit.to_string(), authorship.clone());
+        authorship
+    };
+
+    // If we have authorship log, check if the line was authored by AI
+    if let Some(authorship_log) = authorship_log {
+        // We need to find what line number this was in the first commit
+        // For now, we'll use the current line number as an approximation
+        // A more robust solution would parse git log -L output to get the original line number
+        if let Some((_, _, prompt, _overrode)) =
+            authorship_log.get_line_attribution(repo, file_path, line_num, foreign_prompts_cache)
+        {
+            // Check if the prompt exists and is not overridden in the first commit
+            // If overrode is Some in the first commit, it means even the first author was mixed
+            return Ok(prompt.is_some());
+        }
+    }
+
+    // Default to Human if we can't determine
+    Ok(false)
 }
 
 fn output_porcelain_format(
@@ -936,19 +1035,18 @@ fn output_default_format(
     // Calculate the maximum author name width for proper padding
     let mut max_author_width = 0;
     for (start_line, end_line) in line_ranges {
-        let h = repo.blame_hunks(file_path, *start_line, *end_line, options)?;
-        for hunk in h {
-            let author = line_authors
-                .get(&hunk.range.0)
-                .unwrap_or(&hunk.original_author);
-            let author_display = if options.suppress_author {
-                "".to_string()
-            } else if options.show_email {
-                format!("{} <{}>", author, &hunk.author_email)
-            } else {
-                author.to_string()
-            };
-            max_author_width = max_author_width.max(author_display.len());
+        for line_num in *start_line..=*end_line {
+            if let Some(hunk) = line_to_hunk.get(&line_num) {
+                let author = line_authors.get(&line_num).unwrap_or(&hunk.original_author);
+                let author_display = if options.suppress_author {
+                    "".to_string()
+                } else if options.show_email {
+                    format!("{} <{}>", author, &hunk.author_email)
+                } else {
+                    author.to_string()
+                };
+                max_author_width = max_author_width.max(author_display.len());
+            }
         }
     }
 

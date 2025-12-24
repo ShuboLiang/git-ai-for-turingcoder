@@ -12,3 +12,4 @@ pub mod show;
 pub mod show_prompt;
 pub mod squash_authorship;
 pub mod upgrade;
+pub mod working_stats;

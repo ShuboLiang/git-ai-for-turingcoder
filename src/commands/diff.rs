@@ -44,6 +44,7 @@ pub enum LineSide {
 pub enum Attribution {
     Ai(String),    // Tool name: "cursor", "claude", etc.
     Human(String), // Username
+    Mixed(String), // Mixed authorship: AI content modified by human
     NoData,        // No authorship data available
 }
 
@@ -368,12 +369,17 @@ fn get_line_attribution(
     line: u32,
     foreign_prompts_cache: &mut HashMap<String, Option<PromptRecord>>,
 ) -> Attribution {
-    if let Some((author, _prompt_hash, prompt)) =
+    if let Some((author, _prompt_hash, prompt, overrode)) =
         log.get_line_attribution(repo, file, line, foreign_prompts_cache)
     {
         if let Some(pr) = prompt {
             // AI authorship
-            Attribution::Ai(pr.agent_id.tool.clone())
+            // If overrode is Some, it means human modified AI content -> Mixed
+            if overrode.is_some() {
+                Attribution::Mixed(pr.agent_id.tool.clone())
+            } else {
+                Attribution::Ai(pr.agent_id.tool.clone())
+            }
         } else {
             // Human authorship
             Attribution::Human(author.username.clone())
@@ -564,6 +570,7 @@ fn format_attribution(attribution: &Attribution) -> String {
     match attribution {
         Attribution::Ai(tool) => format!("🤖{}", tool),
         Attribution::Human(username) => format!("👤{}", username),
+        Attribution::Mixed(tool) => format!("🔀{}", tool), // Mixed: AI content modified by human
         Attribution::NoData => "[no-data]".to_string(),
     }
 }
