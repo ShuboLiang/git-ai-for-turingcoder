@@ -6,6 +6,14 @@ use crate::git::repository::Repository;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ANSI color codes for terminal output
+const COLOR_RESET: &str = "\x1b[0m";
+const COLOR_GREEN: &str = "\x1b[32m";  // human
+const COLOR_YELLOW: &str = "\x1b[33m"; // mixed
+const COLOR_BLUE: &str = "\x1b[34m";   // AI
+const COLOR_GRAY: &str = "\x1b[90m";   // skipped
+const COLOR_CYAN: &str = "\x1b[36m";   // for emphasis
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingStats {
     pub files_changed: usize,
@@ -42,14 +50,10 @@ pub fn calculate_working_stats(
     repo: &Repository,
     ignore_patterns: &[String],
 ) -> Result<WorkingStats, GitAiError> {
-    // Get current HEAD commit SHA
-    let base_commit = match repo.head() {
-        Ok(head) => match head.target() {
-            Ok(oid) => oid,
-            Err(_) => "initial".to_string(),
-        },
-        Err(_) => "initial".to_string(),
-    };
+    // Always use "initial" as the base commit for working log
+    // This ensures working-stats always reads from the same location
+    // regardless of how many commits have been made
+    let base_commit = "initial".to_string();
 
     // Build VirtualAttributions from working log only
     let working_va = VirtualAttributions::from_just_working_log(
@@ -180,8 +184,8 @@ fn calculate_file_stats(
     for (line_idx, authors) in line_authors.iter().enumerate() {
         if authors.is_empty() {
             // No attribution at all = skip this line
-            eprintln!("DEBUG: line {} ({:?}) -> no authors -> skipping",
-                      line_idx, lines.get(line_idx));
+            eprintln!("DEBUG: line {} ({:?}) -> {}no authors -> skipping{}",
+                      line_idx, lines.get(line_idx), COLOR_GRAY, COLOR_RESET);
             continue;
         } else if authors.len() == 1 {
             // Only one author
@@ -189,13 +193,13 @@ fn calculate_file_stats(
             if author == "human" {
                 pure_human_lines += 1;
                 total_lines += 1;
-                eprintln!("DEBUG: line {} ({:?}) -> single author: human",
-                          line_idx, lines.get(line_idx));
+                eprintln!("DEBUG: line {} ({:?}) -> {}single author: human{}",
+                          line_idx, lines.get(line_idx), COLOR_GREEN, COLOR_RESET);
             } else {
                 pure_ai_lines += 1;
                 total_lines += 1;
-                eprintln!("DEBUG: line {} ({:?}) -> single author: ai ({})",
-                          line_idx, lines.get(line_idx), author);
+                eprintln!("DEBUG: line {} ({:?}) -> {}single author: ai{} ({})",
+                          line_idx, lines.get(line_idx), COLOR_BLUE, COLOR_RESET, author);
             }
         } else {
             // Multiple authors
@@ -203,20 +207,23 @@ fn calculate_file_stats(
                 // Human + AI(s) = mixed
                 mixed_lines += 1;
                 total_lines += 1;
-                eprintln!("DEBUG: line {} ({:?}) -> human + AI -> mixed",
-                          line_idx, lines.get(line_idx));
+                eprintln!("DEBUG: line {} ({:?}) -> {}human + AI -> mixed{}",
+                          line_idx, lines.get(line_idx), COLOR_YELLOW, COLOR_RESET);
             } else {
                 // AI + AI = pure_ai (multiple AI sessions still count as pure AI)
                 pure_ai_lines += 1;
                 total_lines += 1;
-                eprintln!("DEBUG: line {} ({:?}) -> multiple AI sessions -> pure_ai",
-                          line_idx, lines.get(line_idx));
+                eprintln!("DEBUG: line {} ({:?}) -> {}multiple AI sessions -> pure_ai{}",
+                          line_idx, lines.get(line_idx), COLOR_BLUE, COLOR_RESET);
             }
         }
     }
 
-    eprintln!("DEBUG: final: human={}, ai={}, mixed={}, total={}",
-              pure_human_lines, pure_ai_lines, mixed_lines, total_lines);
+    eprintln!("DEBUG: final: {}human{}={}, {}ai{}={}, {}mixed{}={}, total={}",
+              COLOR_GREEN, COLOR_RESET, pure_human_lines,
+              COLOR_BLUE, COLOR_RESET, pure_ai_lines,
+              COLOR_YELLOW, COLOR_RESET, mixed_lines,
+              total_lines);
 
     Ok(FileStats {
         pure_human_lines,
@@ -270,7 +277,7 @@ fn glob_match(text: &str, pattern: &str) -> bool {
 
 /// Print working stats to terminal
 pub fn print_working_stats(stats: &WorkingStats) {
-    println!("\nWorking Area Stats (uncommitted changes)");
+    println!("\n{}Working Area Stats{} (uncommitted changes)", COLOR_CYAN, COLOR_RESET);
     println!("════════════════════════════════════════\n");
     println!("Files changed: {}\n", stats.files_changed);
 
@@ -284,50 +291,59 @@ pub fn print_working_stats(stats: &WorkingStats) {
     let mixed_pct = (stats.mixed_lines as f64 / stats.total_lines as f64) * 100.0;
     let ai_pct = (stats.pure_ai_lines as f64 / stats.total_lines as f64) * 100.0;
 
-    // Draw progress bar
+    // Draw progress bar with colors
     let bar_width = 40;
     let human_bars = ((human_pct / 100.0) * bar_width as f64) as usize;
     let mixed_bars = ((mixed_pct / 100.0) * bar_width as f64) as usize;
     let ai_bars = bar_width - human_bars - mixed_bars;
 
     println!(
-        "  you  {}{}{}{}",
+        "  {}you{}  {}{}{}{}{}{}{}{} {}{}ai{}",
+        COLOR_GREEN, COLOR_RESET,
+        COLOR_GREEN,
         "█".repeat(human_bars),
+        COLOR_RESET,
+        COLOR_YELLOW,
         "▒".repeat(mixed_bars),
+        COLOR_RESET,
+        COLOR_BLUE,
         "░".repeat(ai_bars),
-        " ai"
+        COLOR_RESET,
+        COLOR_BLUE, COLOR_RESET
     );
 
     println!(
-        "     {:>3}{:>12}mixed {:>3}%{:>12}{:>3}%",
-        format!("{:.0}%", human_pct),
-        "",
-        mixed_pct,
-        "",
-        ai_pct
+        "     {}{:>3}{}{:>12}{}mixed{} {:>5}%{}{:>12}{}{:>3}%{}",
+        COLOR_GREEN, format!("{:.0}%", human_pct), COLOR_RESET,
+        "", COLOR_YELLOW, COLOR_RESET, format!("{:.1}%", mixed_pct),
+        "", COLOR_BLUE, COLOR_RESET, format!("{:.0}%", ai_pct), COLOR_RESET
     );
     println!();
 
-    println!("Summary:");
-    println!("  Pure human:   {} lines", stats.pure_human_lines);
-    println!("  Mixed (AI+human): {} lines", stats.mixed_lines);
-    println!("  Pure AI:      {} lines", stats.pure_ai_lines);
-    println!("  Total:        {} lines", stats.total_lines);
+    println!("{}Summary:{}", COLOR_CYAN, COLOR_RESET);
+    println!("  {}Pure human:{}   {}{}{} lines",
+              COLOR_GREEN, COLOR_RESET, COLOR_GREEN, stats.pure_human_lines, COLOR_RESET);
+    println!("  {}Mixed (AI+human):{} {}{}{} lines",
+              COLOR_YELLOW, COLOR_RESET, COLOR_YELLOW, stats.mixed_lines, COLOR_RESET);
+    println!("  {}Pure AI:{}      {}{}{} lines",
+              COLOR_BLUE, COLOR_RESET, COLOR_BLUE, stats.pure_ai_lines, COLOR_RESET);
+    println!("  {}Total:{}        {} lines",
+              COLOR_CYAN, COLOR_RESET, stats.total_lines);
 
     // Print per-file breakdown
     if !stats.by_file.is_empty() {
-        println!("\nBy file:");
+        println!("\n{}By file:{}:", COLOR_CYAN, COLOR_RESET);
         let mut files: Vec<_> = stats.by_file.iter().collect();
         files.sort_by(|a, b| b.1.total_lines.cmp(&a.1.total_lines));
 
         for (file, file_stats) in files {
             if file_stats.total_lines > 0 {
                 println!(
-                    "  {:30}: {} human, {} mixed, {} ai",
+                    "  {:30}: {}{}{} human, {}{}{} mixed, {}{}{} ai",
                     file,
-                    file_stats.pure_human_lines,
-                    file_stats.mixed_lines,
-                    file_stats.pure_ai_lines
+                    COLOR_GREEN, file_stats.pure_human_lines, COLOR_RESET,
+                    COLOR_YELLOW, file_stats.mixed_lines, COLOR_RESET,
+                    COLOR_BLUE, file_stats.pure_ai_lines, COLOR_RESET
                 );
             }
         }

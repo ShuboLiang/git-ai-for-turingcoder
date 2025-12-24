@@ -41,14 +41,10 @@ pub fn run(
     let checkpoint_start = Instant::now();
     debug_log(&format!("[BENCHMARK] Starting checkpoint run"));
 
-    // Robustly handle zero-commit repos
-    let base_commit = match repo.head() {
-        Ok(head) => match head.target() {
-            Ok(oid) => oid,
-            Err(_) => "initial".to_string(),
-        },
-        Err(_) => "initial".to_string(),
-    };
+    // Always use "initial" as base commit for working log
+    // This ensures checkpoints always write to the same location
+    // regardless of how many commits have been made
+    let base_commit = "initial".to_string();
 
     // Cannot run checkpoint on bare repositories
     if repo.workdir().is_err() {

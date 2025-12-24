@@ -91,10 +91,13 @@ pub fn post_commit(
             .write_initial_attributions(initial_attributions.files, initial_attributions.prompts)?;
     }
 
-    // // Clean up old working log
-    // if !cfg!(debug_assertions) {
-    repo_storage.delete_working_log_for_base_commit(&parent_sha)?;
-    // }
+    // NOTE: We NO LONGER delete or copy the working log after commit
+    // The working log stays in place and continues to track AI authorship
+    // git-ai working-stats will calculate stats based on current file content
+    // and the attributions recorded in checkpoints
+    //
+    // To clean up old working logs, users can run:
+    //   git-ai flush-logs --before <commit-sha>
 
     if !supress_output {
         let stats = stats_for_commit_stats(repo, &commit_sha, &[])?;
@@ -324,6 +327,34 @@ fn strip_prompt_messages(prompts: &mut std::collections::BTreeMap<String, Prompt
     for record in prompts.values_mut() {
         record.messages.clear();
     }
+}
+
+/// Recursively copy a directory and its contents
+fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> Result<(), std::io::Error> {
+    if !from.exists() {
+        return Ok(());
+    }
+
+    // Create the target directory if it doesn't exist
+    if !to.exists() {
+        std::fs::create_dir_all(to)?;
+    }
+
+    // Copy all files and subdirectories
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dest_path = to.join(entry.file_name());
+
+        if ty.is_dir() {
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            std::fs::copy(&src_path, &dest_path)?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
