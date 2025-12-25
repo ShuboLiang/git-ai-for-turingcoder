@@ -182,6 +182,14 @@ fn calculate_file_stats(
     let mut total_lines = 0;
 
     for (line_idx, authors) in line_authors.iter().enumerate() {
+        // Skip empty lines (lines with no content)
+        let line_content = lines.get(line_idx).map(|s| s.trim()).unwrap_or("");
+        if line_content.is_empty() {
+            eprintln!("DEBUG: line {} -> {}empty line -> skipping{}",
+                      line_idx, COLOR_GRAY, COLOR_RESET);
+            continue;
+        }
+
         if authors.is_empty() {
             // No attribution at all = skip this line
             eprintln!("DEBUG: line {} ({:?}) -> {}no authors -> skipping{}",
@@ -313,7 +321,7 @@ pub fn print_working_stats(stats: &WorkingStats) {
     );
 
     println!(
-        "     {}{:>3}{}{:>12}{}mixed{} {:>5}%{}{:>12}{}{:>3}%{}",
+        "     {}{:>8}{}{:>12}{}mixed{} {:>8}{}{:>12}{}{:>8}{}",
         COLOR_GREEN, format!("{:.0}%", human_pct), COLOR_RESET,
         "", COLOR_YELLOW, COLOR_RESET, format!("{:.1}%", mixed_pct),
         "", COLOR_BLUE, COLOR_RESET, format!("{:.0}%", ai_pct), COLOR_RESET
