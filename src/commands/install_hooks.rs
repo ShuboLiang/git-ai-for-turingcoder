@@ -28,12 +28,6 @@ const GEMINI_AFTER_TOOL_CMD: &str = "checkpoint gemini --hook-input stdin";
 const CURSOR_BEFORE_SUBMIT_CMD: &str = "checkpoint cursor --hook-input stdin";
 const CURSOR_AFTER_EDIT_CMD: &str = "checkpoint cursor --hook-input stdin";
 
-// OpenCode plugin content (TypeScript), embedded from the source file to avoid drift
-const OPENCODE_PLUGIN_CONTENT: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/agent-support/opencode/git-ai.ts"
-));
-
 pub fn run(args: &[String]) -> Result<(), GitAiError> {
     // Parse --dry-run flag (default: false)
     let mut dry_run = false;
@@ -286,46 +280,6 @@ async fn async_run(binary_path: PathBuf, dry_run: bool) -> Result<(), GitAiError
         }
     }
 
-    match check_opencode() {
-        Ok(true) => {
-            any_checked = true;
-            // Install/update OpenCode plugin
-            let spinner = Spinner::new("OpenCode: checking plugin");
-            spinner.start();
-
-            match install_opencode_hooks(dry_run) {
-                Ok(Some(diff)) => {
-                    if dry_run {
-                        spinner.pending("OpenCode: Pending plugin install");
-                    } else {
-                        spinner.success("OpenCode: Plugin installed");
-                    }
-                    println!(); // Blank line before diff
-                    print_diff(&diff);
-                    has_changes = true;
-                }
-                Ok(None) => {
-                    spinner.success("OpenCode: Plugin already up to date");
-                }
-                Err(e) => {
-                    spinner.error("OpenCode: Failed to install plugin");
-                    eprintln!("  Error: {}", e);
-                    eprintln!("  Check that ~/.config/opencode/plugin/ is writable");
-                }
-            }
-        }
-        Ok(false) => {
-            // OpenCode not detected
-        }
-        Err(version_error) => {
-            any_checked = true;
-            let spinner = Spinner::new("OpenCode: checking version");
-            spinner.start();
-            spinner.error("OpenCode: Version check failed");
-            eprintln!("  Error: {}", version_error);
-        }
-    }
-
     match check_gemini() {
         Ok(true) => {
             any_checked = true;
@@ -506,27 +460,6 @@ fn check_vscode() -> Result<bool, String> {
             }
         }
     }
-
-    Ok(true)
-}
-
-fn check_opencode() -> Result<bool, String> {
-    let has_binary = binary_exists("opencode");
-    let has_global_config = {
-        let home = home_dir();
-        home.join(".config").join("opencode").exists()
-    };
-    let has_local_config = {
-        // Check if .opencode directory exists in current directory
-        Path::new(".opencode").exists()
-    };
-
-    if !has_binary && !has_global_config && !has_local_config {
-        return Ok(false);
-    }
-
-    // OpenCode doesn't have a minimum version requirement for now
-    // The plugin uses standard APIs that should work with any version
 
     Ok(true)
 }
@@ -1186,62 +1119,6 @@ fn install_cursor_hooks(binary_path: &Path, dry_run: bool) -> Result<Option<Stri
     }
 
     Ok(Some(diff_output))
-}
-
-fn install_opencode_hooks(dry_run: bool) -> Result<Option<String>, GitAiError> {
-    // Install to global config directory: ~/.config/opencode/plugin/git-ai.ts
-    let plugin_path = opencode_plugin_path();
-
-    // Ensure directory exists
-    if let Some(dir) = plugin_path.parent() {
-        if !dry_run {
-            fs::create_dir_all(dir)?;
-        }
-    }
-
-    // Read existing content if present
-    let existing_content = if plugin_path.exists() {
-        fs::read_to_string(&plugin_path)?
-    } else {
-        String::new()
-    };
-
-    let new_content = OPENCODE_PLUGIN_CONTENT;
-
-    // Check if there are changes
-    if existing_content.trim() == new_content.trim() {
-        return Ok(None); // No changes needed
-    }
-
-    // Generate diff
-    let changes = compute_line_changes(&existing_content, new_content);
-    let mut diff_output = String::new();
-    diff_output.push_str(&format!("--- {}\n", plugin_path.display()));
-    diff_output.push_str(&format!("+++ {}\n", plugin_path.display()));
-
-    for change in changes {
-        let sign = match change.tag() {
-            LineChangeTag::Delete => "-",
-            LineChangeTag::Insert => "+",
-            LineChangeTag::Equal => " ",
-        };
-        diff_output.push_str(&format!("{}{}", sign, change.value()));
-    }
-
-    // Write if not dry-run
-    if !dry_run {
-        write_atomic(&plugin_path, new_content.as_bytes())?;
-    }
-
-    Ok(Some(diff_output))
-}
-
-fn opencode_plugin_path() -> PathBuf {
-    home_dir()
-        .join(".config")
-        .join("opencode")
-        .join("plugin")
-        .join("git-ai.ts")
 }
 
 fn claude_settings_path() -> PathBuf {
@@ -2619,143 +2496,6 @@ mod tests {
         assert!(!is_git_ai_checkpoint_command("git status"));
         assert!(!is_git_ai_checkpoint_command("checkpoint"));
         assert!(!is_git_ai_checkpoint_command("git-ai"));
-    }
-
-    // OpenCode tests
-    fn setup_opencode_test_env() -> (TempDir, PathBuf) {
-        let temp_dir = TempDir::new().unwrap();
-        let plugin_path = temp_dir
-            .path()
-            .join(".config")
-            .join("opencode")
-            .join("plugin")
-            .join("git-ai.ts");
-        (temp_dir, plugin_path)
-    }
-
-    #[test]
-    fn test_opencode_install_plugin_creates_file_from_scratch() {
-        let (_temp_dir, plugin_path) = setup_opencode_test_env();
-
-        // Ensure parent directory exists
-        if let Some(parent) = plugin_path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-
-        // Write the plugin content
-        fs::write(&plugin_path, OPENCODE_PLUGIN_CONTENT).unwrap();
-
-        // Verify the file was created
-        assert!(plugin_path.exists());
-
-        // Verify the content contains expected elements
-        let content = fs::read_to_string(&plugin_path).unwrap();
-        assert!(content.contains("GitAiPlugin"));
-        assert!(content.contains("tool.execute.before"));
-        assert!(content.contains("tool.execute.after"));
-        assert!(content.contains("agent-v1"));
-        assert!(content.contains("opencode"));
-    }
-
-    #[test]
-    fn test_opencode_plugin_content_is_valid_typescript() {
-        // Verify the plugin content has expected TypeScript structure
-        let content = OPENCODE_PLUGIN_CONTENT;
-
-        // Check for required imports
-        assert!(content.contains("import type { Plugin }"));
-        assert!(content.contains("@opencode-ai/plugin"));
-
-        // Check for export
-        assert!(content.contains("export const GitAiPlugin: Plugin"));
-
-        // Check for hook handlers
-        assert!(content.contains("\"tool.execute.before\""));
-        assert!(content.contains("\"tool.execute.after\""));
-
-        // Check for file edit tools
-        assert!(content.contains("FILE_EDIT_TOOLS"));
-        assert!(content.contains("edit"));
-        assert!(content.contains("write"));
-
-        // Check for checkpoint calls
-        assert!(content.contains("git-ai checkpoint agent-v1"));
-        assert!(content.contains("type: \"human\""));
-        assert!(content.contains("type: \"ai_agent\""));
-    }
-
-    #[test]
-    fn test_opencode_plugin_skips_if_already_exists() {
-        let (_temp_dir, plugin_path) = setup_opencode_test_env();
-
-        // Ensure parent directory exists
-        if let Some(parent) = plugin_path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-
-        // Write the plugin content
-        fs::write(&plugin_path, OPENCODE_PLUGIN_CONTENT).unwrap();
-
-        // Read it back
-        let content1 = fs::read_to_string(&plugin_path).unwrap();
-
-        // Write again (simulating re-install)
-        fs::write(&plugin_path, OPENCODE_PLUGIN_CONTENT).unwrap();
-
-        // Verify content is unchanged
-        let content2 = fs::read_to_string(&plugin_path).unwrap();
-        assert_eq!(content1, content2);
-    }
-
-    #[test]
-    fn test_opencode_plugin_updates_outdated_content() {
-        let (_temp_dir, plugin_path) = setup_opencode_test_env();
-
-        // Ensure parent directory exists
-        if let Some(parent) = plugin_path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-
-        // Write old/different content
-        let old_content = "// Old plugin version\nexport const OldPlugin = {}";
-        fs::write(&plugin_path, old_content).unwrap();
-
-        // Verify old content
-        let content_before = fs::read_to_string(&plugin_path).unwrap();
-        assert!(content_before.contains("OldPlugin"));
-
-        // Write new content
-        fs::write(&plugin_path, OPENCODE_PLUGIN_CONTENT).unwrap();
-
-        // Verify new content
-        let content_after = fs::read_to_string(&plugin_path).unwrap();
-        assert!(content_after.contains("GitAiPlugin"));
-        assert!(!content_after.contains("OldPlugin"));
-    }
-
-    #[test]
-    fn test_opencode_plugin_handles_empty_directory() {
-        let temp_dir = TempDir::new().unwrap();
-        let plugin_path = temp_dir
-            .path()
-            .join(".config")
-            .join("opencode")
-            .join("plugin")
-            .join("git-ai.ts");
-
-        // Parent directory doesn't exist yet
-        assert!(!plugin_path.parent().unwrap().exists());
-
-        // Create directory and write file
-        if let Some(parent) = plugin_path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(&plugin_path, OPENCODE_PLUGIN_CONTENT).unwrap();
-
-        // Verify file was created
-        assert!(plugin_path.exists());
-        let content = fs::read_to_string(&plugin_path).unwrap();
-        assert!(content.contains("GitAiPlugin"));
     }
 
     // Gemini tests
