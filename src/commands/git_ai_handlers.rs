@@ -451,7 +451,7 @@ fn handle_checkpoint(args: &[String]) {
         Ok((_, files_edited, _)) => {
             let elapsed = checkpoint_start.elapsed();
             log_performance_for_checkpoint(files_edited, elapsed, checkpoint_kind);
-            eprintln!("Checkpoint completed in {:?}", elapsed);
+            println!("Checkpoint completed in {:?}", elapsed);
         }
         Err(e) => {
             let elapsed = checkpoint_start.elapsed();

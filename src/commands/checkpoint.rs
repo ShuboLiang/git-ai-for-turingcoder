@@ -366,7 +366,7 @@ pub fn run(
 
         if files_with_entries == total_uncommitted_files {
             // All files with changes got entries
-            eprintln!(
+            println!(
                 "{} {} changed {} file(s) that have changed since the last {}",
                 kind.to_str(),
                 log_author,
@@ -375,7 +375,7 @@ pub fn run(
             );
         } else {
             // Some files were already checkpointed
-            eprintln!(
+            println!(
                 "{} {} changed {} of the {} file(s) that have changed since the last {} ({} already checkpointed)",
                 kind.to_str(),
                 log_author,
